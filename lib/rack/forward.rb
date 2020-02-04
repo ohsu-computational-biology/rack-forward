@@ -4,7 +4,7 @@ require 'net/http'
 
 module Rack
   class Forward
-    HTTP_METHODS = %w(GET HEAD PUT POST DELETE OPTIONS PATCH)
+    HTTP_METHODS = %w[GET HEAD PUT POST DELETE OPTIONS PATCH].freeze
 
     def initialize(app, options = {}, &block)
       self.class.send(:define_method, :uri_for, &block)
@@ -13,6 +13,7 @@ module Rack
       @domain = options[:domain] || nil
       @secure = options[:secure] || false
       @timeout = options[:timeout] || 5
+      @custom_headers = options[:custom_headers] || []
     end
 
     def call(env)
@@ -22,9 +23,9 @@ module Rack
 
       return @app.call(env) unless uri && HTTP_METHODS.include?(method)
 
-      sub_request = Net::HTTP.const_get(method.capitalize).new("#{uri.path}#{"?" if uri.query}#{uri.query}")
+      sub_request = Net::HTTP.const_get(method.capitalize).new("#{uri.path}#{'?' if uri.query}#{uri.query}")
 
-      if sub_request.request_body_permitted? and req.body
+      if sub_request.request_body_permitted? && req.body
         sub_request.body_stream = req.body
         sub_request.content_length = req.content_length
         sub_request.content_type = req.content_type
@@ -34,10 +35,13 @@ module Rack
       sub_request['X-Forwarded-For'] = (req.env['X-Forwarded-For'].to_s.split(/, */) + [req.env['REMOTE_ADDR']]).join(', ')
       sub_request['Accept'] = req.env['HTTP_ACCEPT']
       sub_request['Accept-Encoding'] = req.accept_encoding
-      sub_request['Authorization']  = req.env['HTTP_AUTHORIZATION']
+      sub_request['Authorization'] = req.env['HTTP_AUTHORIZATION']
       sub_request['Access-Control-Allow-Origin'] = req.env['ACCESS_CONTROL_ALLOW_ORIGIN']
       sub_request['Cookie']  = req.env['HTTP_COOKIE']
       sub_request['Referer'] = req.referer
+      @custom_headers.each do |header|
+        sub_request[header] = req.env["HTTP_#{header.tr('-', '_').upcase}"]
+      end
 
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = true if uri.port == 443
@@ -61,11 +65,11 @@ module Rack
       end
 
       (0..cookies.length - 1).each do |idx|
-        k,v = extract_cookie(cookies[idx])
+        k, v = extract_cookie(cookies[idx])
 
         cookies[idx] = "#{k}=#{v}; path=/"
         cookies[idx] << "; domain=#{@domain}" if @domain
-        cookies[idx] << "; secure" if @secure
+        cookies[idx] << '; secure' if @secure
       end
 
       headers['Set-Cookie'] = cookies.join('\n')
@@ -91,8 +95,7 @@ module Rack
         end
       end
 
-      return ['', '']
+      ['', '']
     end
-
   end
 end
